@@ -1,0 +1,16 @@
+README.md
+pyproject.toml
+py2apk/android_project/app/src/main/python/ai_model.py
+py2apk/android_project/app/src/main/python/api_client.py
+py2apk/gui/main_window.py
+py2apk/py2apk.egg-info/PKG-INFO
+py2apk/py2apk.egg-info/SOURCES.txt
+py2apk/py2apk.egg-info/dependency_links.txt
+py2apk/py2apk.egg-info/entry_points.txt
+py2apk/py2apk.egg-info/requires.txt
+py2apk/py2apk.egg-info/top_level.txt
+py2apk/tests/test_android.py
+py2apk/utils/ai_processing.py
+py2apk/utils/key_store.py
+py2apk/utils/manifest.py
+py2apk/utils/system_check.py
