@@ -1,3 +1,9 @@
+# ARCHIVED — Py2APK
+
+> **Status: ARCHIVED** (Sweep-142). Historical demo only. See [ARCHIVED.md](../ARCHIVED.md) and [CLAIM_STATUS.md](../CLAIM_STATUS.md). No further development. GitHub archive flag pending operator.
+
+---
+
 # Py2APK
 
 Py2APK is an Android application that demonstrates how to run Python code, specifically an ONNX AI model, within an Android app using Chaquopy.
