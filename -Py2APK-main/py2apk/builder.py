@@ -1,116 +1,188 @@
-"""APK building functionality"""
-import subprocess
+"""Android project scaffolding and optional APK build (SDK-dependent)."""
+from __future__ import annotations
+
 import logging
 import os
+import shutil
+import subprocess
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Callable, Optional
+
 from .config import DEFAULT_CONFIG, find_android_sdk
 from .signing import APKSigner
+from .utils.manifest import AppConfig, ManifestGenerator
 
 logger = logging.getLogger(__name__)
 
 
 class APKBuilder:
-    """Handles Android project creation and APK building"""
+    """Handles Android project scaffolding and (when SDK present) APK builds."""
 
-    def __init__(self, project_path: Path, output_dir: Path):
-        """
-        Initialize builder
-
-        Args:
-            project_path (Path): Source Python project path
-            output_dir (Path): Output directory for APK
-        """
-        self.project_path = project_path
-        self.output_dir = output_dir
+    def __init__(
+        self,
+        project_path: Path,
+        output_dir: Path,
+        *,
+        require_sdk: bool = False,
+    ):
+        self.project_path = Path(project_path)
+        self.output_dir = Path(output_dir)
         self.android_sdk = find_android_sdk()
-        self.apk_signer = APKSigner() # Instantiate APKSigner
-
-    def create_android_project(self) -> bool:
-        """Create Chaquopy Android project structure"""
-        try:
-            # Create directory structure
-            (self.output_dir / "app/src/main/python").mkdir(parents=True, exist_ok=True)
-            
-            # Copy project files
-            subprocess.run(
-                ["cp", "-r", f"{self.project_path}/*", 
-                 f"{self.output_dir}/app/src/main/python/"],
-                check=True
+        self.apk_signer = APKSigner()
+        if require_sdk and self.android_sdk is None:
+            raise FileNotFoundError(
+                "Android SDK not found. Set ANDROID_HOME or use dry-run/scaffold."
             )
-            
-            # Generate Gradle config
+
+    @property
+    def template_root(self) -> Path:
+        return Path(__file__).resolve().parent / "android_project"
+
+    def create_android_project(self, *, dry_run: bool = False) -> bool:
+        """
+        Scaffold a Chaquopy-oriented Android project under output_dir.
+
+        Copies the bundled historical android_project template, overlays the
+        user's Python sources, and writes stub Gradle files.
+        Does not invoke Gradle. Safe without Android SDK.
+        """
+        try:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            python_dst = self.output_dir / "app" / "src" / "main" / "python"
+            python_dst.mkdir(parents=True, exist_ok=True)
+
+            if self.template_root.is_dir():
+                for src in self.template_root.rglob("*"):
+                    if src.is_file():
+                        rel = src.relative_to(self.template_root)
+                        dst = self.output_dir / rel
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dst)
+                logger.info("Copied android_project template -> %s", self.output_dir)
+            else:
+                logger.warning("Bundled android_project template missing; minimal scaffold only")
+
+            if self.project_path.is_dir():
+                for src in self.project_path.rglob("*"):
+                    if src.is_file() and "__pycache__" not in src.parts:
+                        rel = src.relative_to(self.project_path)
+                        dst = python_dst / rel
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dst)
+                logger.info("Copied Python project sources -> %s", python_dst)
+
             self._generate_gradle_config()
+            ManifestGenerator().create_manifest(
+                self.output_dir,
+                AppConfig(
+                    package_name=DEFAULT_CONFIG["APPLICATION_ID"],
+                    min_sdk=DEFAULT_CONFIG["MIN_SDK"],
+                    target_sdk=DEFAULT_CONFIG["TARGET_SDK"],
+                ),
+            )
+
+            if dry_run:
+                marker = self.output_dir / "DRY_RUN.txt"
+                marker.write_text(
+                    "Claim-0 dry-run scaffold only.\n"
+                    "No Gradle/APK build was executed.\n"
+                    "Open this tree in Android Studio with Chaquopy to attempt a real APK.\n",
+                    encoding="utf-8",
+                )
             return True
-            
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Project creation failed: {str(e)}")
+        except OSError as e:
+            logger.error("Project creation failed: %s", e)
             return False
 
-    def _generate_gradle_config(self):
-        """Generate Android build configuration"""
-        gradle_template = f"""
-        android {{
-            compileSdk {DEFAULT_CONFIG['PYTHON_VERSION']}
-            ndkVersion "25.1.8937393"
-            
-            defaultConfig {{
-                minSdk 21
-                targetSdk 33
-                python {{
-                    version "{DEFAULT_CONFIG['PYTHON_VERSION']}"
-                }}
-            }}
-        }}
-        """
-        (self.output_dir / "build.gradle").write_text(gradle_template)
+    def _generate_gradle_config(self) -> None:
+        """Write stub Gradle snippets (not a complete Android Studio project)."""
+        compile_sdk = DEFAULT_CONFIG["COMPILE_SDK"]
+        py_ver = DEFAULT_CONFIG["PYTHON_VERSION"]
+        app_id = DEFAULT_CONFIG["APPLICATION_ID"]
+        root_gradle = (
+            "// Generated by py2apk (Claim-0 scaffold). "
+            "Incomplete without Android Studio/Chaquopy plugin classpath.\n"
+            "plugins {\n"
+            "    id 'com.android.application' version '8.1.0' apply false\n"
+            "}\n\n"
+            f"// compileSdk={compile_sdk} python={py_ver} applicationId={app_id}\n"
+        )
+        (self.output_dir / "build.gradle").write_text(root_gradle, encoding="utf-8")
+        settings = 'rootProject.name = "py2apk-scaffold"\ninclude \':app\'\n'
+        (self.output_dir / "settings.gradle").write_text(settings, encoding="utf-8")
 
     def build_apk(self, callback: Optional[Callable] = None) -> bool:
         """
-        Build APK package
-        
-        Args:
-            callback (Callable): Progress callback function
-            
-        Returns:
-            bool: True if build successful
+        Attempt Gradle assembleRelease. Requires Android SDK + gradlew in output_dir.
+
+        Claim-0: typically unavailable on headless boxes without Android Studio.
         """
+        if self.android_sdk is None:
+            logger.error(
+                "Cannot build APK: Android SDK not found. "
+                "Scaffold with `py2apk scaffold` / `py2apk dry-run` instead."
+            )
+            return False
+
+        gradle_script = "gradlew.bat" if os.name == "nt" else "./gradlew"
+        gradle_path = self.output_dir / ("gradlew.bat" if os.name == "nt" else "gradlew")
+        if not gradle_path.exists():
+            logger.error(
+                "No gradlew wrapper in %s. This Claim-0 scaffold is not a full "
+                "Android Studio project. Open/copy into a Chaquopy-enabled project to build.",
+                self.output_dir,
+            )
+            return False
+
         try:
-            gradle_script = "./gradlew"
-            if os.name == 'nt': # Windows
-                gradle_script = "gradlew.bat"
-                
             result = subprocess.run(
                 [gradle_script, "assembleRelease"],
                 cwd=self.output_dir,
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True
+                text=True,
             )
-            
             if callback:
                 for line in result.stdout.splitlines():
                     callback(line.strip())
 
-            apk_file = self.output_dir / "app" / "build" / "outputs" / "apk" / "release" / "app-release-unsigned.apk"
-            keystore_path = Path("debug.keystore") # Placeholder - should be configurable
-            keystore_pass = "android" # Placeholder - should be configurable
-            key_alias = "androiddebugkey" # Placeholder - should be configurable
-            key_pass = "android" # Placeholder - should be configurable
+            apk_file = (
+                self.output_dir
+                / "app"
+                / "build"
+                / "outputs"
+                / "apk"
+                / "release"
+                / "app-release-unsigned.apk"
+            )
+            if not apk_file.exists():
+                logger.error("Gradle finished but APK not found at %s", apk_file)
+                return False
+
+            keystore_path = Path("debug.keystore")
+            keystore_pass = "android"
+            key_alias = "androiddebugkey"
+            key_pass = "android"
 
             if not keystore_path.exists():
                 logger.info("Generating debug keystore...")
-                self.apk_signer.generate_keystore(keystore_path, keystore_pass, key_alias, key_pass)
+                if not self.apk_signer.generate_keystore(
+                    keystore_path, keystore_pass, key_alias, key_pass
+                ):
+                    return False
 
-            if self.apk_signer.sign_apk(apk_file, keystore_path, keystore_pass, key_alias, key_pass):
-                logger.info("APK signing completed.")
-            else:
+            if not self.apk_signer.sign_apk(
+                apk_file, keystore_path, keystore_pass, key_alias, key_pass
+            ):
                 logger.error("APK signing failed.")
                 return False
-                    
+
+            logger.info("APK signing completed.")
             return True
-            
         except subprocess.CalledProcessError as e:
-            logger.error(f"Build failed: {e.stdout}")
+            logger.error("Build failed: %s", getattr(e, "stdout", e))
+            return False
+        except FileNotFoundError as e:
+            logger.error("Build tool missing: %s", e)
             return False

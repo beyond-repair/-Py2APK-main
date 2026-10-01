@@ -4,18 +4,40 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "py2apk"
-version = "1.0.0"
-description = "Python to Android APK Converter"
+version = "0.1.0"
+description = "Claim-0 Python→Android APK packaging sketch (Chaquopy/ONNX-era experiment)"
 readme = "README.md"
 requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "beyond-repair" }]
 dependencies = [
     "click>=8.1",
-    "numpy>=1.23",
-    "onnxruntime>=1.13"
+    "packaging>=23.0",
+    "PyYAML>=6.0",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+onnx = ["numpy>=1.23", "onnxruntime>=1.13"]
+gui = []  # requires system python3-tk; not installable via pip alone
 
 [project.scripts]
 py2apk = "py2apk.cli:main"
 
+[project.urls]
+Repository = "https://github.com/beyond-repair/-Py2APK-main"
+
 [tool.setuptools.packages.find]
-where = ["py2apk"]
+where = ["."]
+include = ["py2apk*"]
+exclude = ["py2apk.tests*", "tests*"]
+
+[tool.setuptools.package-data]
+py2apk = [
+    "android_project/**/*",
+    "data/*.yaml",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

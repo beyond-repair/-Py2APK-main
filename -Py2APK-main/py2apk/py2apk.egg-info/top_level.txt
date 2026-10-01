@@ -1,4 +1,0 @@
-android_project
-gui
-tests
-utils

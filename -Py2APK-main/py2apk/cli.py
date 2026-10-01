@@ -1,92 +1,193 @@
-"""Command-line interface for Py2APK"""
-import click
+"""Command-line interface for Py2APK (Claim-0)."""
+from __future__ import annotations
+
+import json
 import logging
 import sys
 from pathlib import Path
-from .builder import APKBuilder
+
+import click
+
+from . import __version__
 from .analyzer import DependencyAnalyzer
-from .gui.main_window import launch_gui, MainWindow
+from .builder import APKBuilder
+from .config import find_android_sdk
+from .utils.system_check import SystemValidator
 
-
-from logging.handlers import QueueHandler, QueueListener
-
-# Default logging configuration for CLI
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()]
+    handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
-@click.command()
-@click.option("--project", help="Path to Python project directory")
-@click.option("--output", default="dist", help="Output directory for APK")
-@click.option("--gui", is_flag=True, help="Launch graphical interface")
-def main(project, output, gui):
-    """
-    Convert Python AI projects to Android APKs
-    
-    Args:
-        project (str): Path to project directory
-        output (str): Output directory path
-        gui (bool): Launch GUI interface
-    """
-    try:
-        if gui:
-            root_logger = logging.getLogger()
-            window = MainWindow()
-            queue_handler = QueueHandler(window.log_queue)
-            root_logger.addHandler(queue_handler)
-            launch_gui()
+
+def _validate_project(project_path: Path, *, require_main: bool = False) -> bool:
+    if not project_path.is_dir():
+        logger.error("Project path is not a directory: %s", project_path)
+        return False
+    if require_main and not (project_path / "main.py").exists():
+        logger.error("Missing required file: main.py")
+        return False
+    req = project_path / "requirements.txt"
+    if req.exists():
+        issues = DependencyAnalyzer().check_compatibility(req)
+        if issues:
+            logger.warning("Dependency compatibility notes:")
+            for issue in issues:
+                logger.warning("- %s", issue)
+    return True
+
+
+@click.group(invoke_without_command=True)
+@click.option("--version", "show_version", is_flag=True, help="Show version and exit")
+@click.pass_context
+def main(ctx: click.Context, show_version: bool) -> None:
+    """Py2APK — Claim-0 Python→Android packaging sketch (not a production APK converter)."""
+    if show_version:
+        click.echo(f"py2apk {__version__}")
+        ctx.exit(0)
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@main.command("analyze")
+@click.option(
+    "--project",
+    "project",
+    required=True,
+    type=click.Path(),
+    help="Python project directory",
+)
+@click.option("--json-out", is_flag=True, help="Emit JSON summary")
+def analyze_cmd(project: str, json_out: bool) -> None:
+    """Analyze a Python project for packaging readiness (no SDK required)."""
+    path = Path(project)
+    summary = DependencyAnalyzer().summarize_project(path)
+    if json_out:
+        click.echo(json.dumps(summary, indent=2))
+    else:
+        click.echo(f"Project: {summary['project']}")
+        click.echo(f"Exists: {summary['exists']}")
+        click.echo(f"Python files: {summary['python_files']}")
+        click.echo(f"main.py: {summary['has_main_py']}")
+        click.echo(f"requirements.txt: {summary['has_requirements']}")
+        click.echo(f"pyproject.toml: {summary['has_pyproject']}")
+        if summary["compatibility_issues"]:
+            click.echo("Compatibility notes:")
+            for issue in summary["compatibility_issues"]:
+                click.echo(f"  - {issue}")
         else:
-            if not project:
-                logger.error("Please specify a project path with --project")
-                sys.exit(1)
-                
-            project_path = Path(project)
-            output_path = Path(output)
-            
-            if not validate_project(project_path):
-                sys.exit(1)
-                
-            builder = APKBuilder(project_path, output_path)
-            if builder.create_android_project():
-                logger.info("Android project created successfully.")
-                if builder.build_apk():
-                    logger.info(f"APK successfully built: {output_path}/app-release.apk")
-                else:
-                    logger.error("APK build failed.")
-            else:
-                logger.error("Android project creation failed.")
-                
-    except Exception as e:
-        logger.error(f"Critical error: {str(e)}")
+            click.echo("Compatibility notes: (none)")
+    if not summary["exists"]:
         sys.exit(1)
 
-def validate_project(project_path: Path) -> bool:
-    """
-    Validate project structure
-    
-    Args:
-        project_path (Path): Path to project directory
-        
-    Returns:
-        bool: True if valid, False otherwise
-    """
-    required_files = ["main.py"]
-    for f in required_files:
-        if not (project_path / f).exists():
-            logger.error(f"Missing required file: {f}")
-            return False
-    
-    analyzer = DependencyAnalyzer()
-    issues = analyzer.check_compatibility(project_path / "requirements.txt")
-    if issues:
-        logger.warning("Dependency compatibility issues found:")
-        for issue in issues:
-            logger.warning(f"- {issue}")
-            
-    return True
+
+@main.command("doctor")
+def doctor_cmd() -> None:
+    """Report host tools / Android SDK availability."""
+    sdk = find_android_sdk()
+    click.echo(f"py2apk {__version__}")
+    click.echo(
+        f"Android SDK: {sdk if sdk else 'NOT FOUND (dry-run/scaffold still work)'}"
+    )
+    report = SystemValidator().report()
+    for name, present in report.items():
+        click.echo(f"{name}: {'ok' if present else 'missing'}")
+    click.echo(
+        "Note: Claim-0 does not claim a verified APK build on this host without SDK/Gradle."
+    )
+
+
+@main.command("dry-run")
+@click.option(
+    "--project",
+    required=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Python project directory",
+)
+@click.option("--output", default="dist", show_default=True, help="Output directory for scaffold")
+def dry_run_cmd(project: str, output: str) -> None:
+    """Scaffold Android project tree without invoking Gradle/APK build."""
+    project_path = Path(project)
+    output_path = Path(output)
+    if not _validate_project(project_path, require_main=False):
+        sys.exit(1)
+    summary = DependencyAnalyzer().summarize_project(project_path)
+    click.echo(
+        json.dumps(
+            {k: summary[k] for k in summary if k != "compatibility_issues"},
+            indent=2,
+        )
+    )
+    builder = APKBuilder(project_path, output_path, require_sdk=False)
+    if builder.create_android_project(dry_run=True):
+        click.echo(f"Dry-run scaffold written to {output_path.resolve()}")
+        click.echo("No APK was built (Claim-0).")
+    else:
+        logger.error("Dry-run scaffold failed.")
+        sys.exit(1)
+
+
+@main.command("scaffold")
+@click.option(
+    "--project",
+    required=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Python project directory",
+)
+@click.option("--output", default="dist", show_default=True, help="Output directory")
+def scaffold_cmd(project: str, output: str) -> None:
+    """Create Android project scaffold (no Gradle/APK)."""
+    project_path = Path(project)
+    output_path = Path(output)
+    if not _validate_project(project_path, require_main=False):
+        sys.exit(1)
+    builder = APKBuilder(project_path, output_path, require_sdk=False)
+    if builder.create_android_project(dry_run=True):
+        click.echo(f"Scaffold written to {output_path.resolve()}")
+    else:
+        sys.exit(1)
+
+
+@main.command("build")
+@click.option(
+    "--project",
+    required=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Python project directory",
+)
+@click.option("--output", default="dist", show_default=True, help="Output directory")
+def build_cmd(project: str, output: str) -> None:
+    """Attempt real APK build (requires Android SDK + Gradle wrapper)."""
+    project_path = Path(project)
+    output_path = Path(output)
+    if not _validate_project(project_path, require_main=True):
+        sys.exit(1)
+    try:
+        builder = APKBuilder(project_path, output_path, require_sdk=True)
+    except FileNotFoundError as e:
+        logger.error("%s", e)
+        sys.exit(2)
+    if not builder.create_android_project(dry_run=False):
+        sys.exit(1)
+    if builder.build_apk():
+        click.echo(f"APK build reported success under {output_path}")
+    else:
+        logger.error("APK build failed or unsupported in this environment.")
+        sys.exit(1)
+
+
+@main.command("gui")
+def gui_cmd() -> None:
+    """Launch Tk GUI if system tkinter is available."""
+    try:
+        from .gui.main_window import launch_gui
+    except ImportError as e:
+        logger.error("GUI unavailable (install python3-tk): %s", e)
+        sys.exit(1)
+    launch_gui()
+
 
 if __name__ == "__main__":
     main()
