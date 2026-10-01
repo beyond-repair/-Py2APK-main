@@ -1,3 +1,3 @@
-"""Py2APK package initialization"""
-__version__ = "1.0.0"  # Package version
-__author__ = "Your Name <your.email@example.com>"  # Maintainer info
+"""Py2APK — Claim-0 Python→Android packaging sketch."""
+__version__ = "0.1.0"
+__author__ = "beyond-repair"

@@ -1,0 +1,14 @@
+# Chaquopy-era known package constraints (historical sketch defaults).
+# Not a guarantee of current Chaquopy wheel availability.
+numpy:
+  min_version: "1.19.0"
+  max_version: "1.26.4"
+onnxruntime:
+  min_version: "1.10.0"
+  max_version: "1.16.3"
+requests:
+  min_version: "2.25.0"
+  max_version: "2.32.3"
+torch:
+  note: "Heavy; often impractical in Chaquopy APKs"
+  max_version: "2.1.0"

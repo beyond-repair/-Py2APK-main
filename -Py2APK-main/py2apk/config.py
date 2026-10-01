@@ -1,39 +1,57 @@
-"""Configuration settings and constants"""
-from pathlib import Path
-import os
+"""Configuration settings and constants."""
+from __future__ import annotations
 
-# Default configuration values
+import os
+from pathlib import Path
+from typing import List, Optional
+
 DEFAULT_CONFIG = {
     "ANDROID_SDK_PATHS": [
         os.getenv("ANDROID_HOME"),
+        os.getenv("ANDROID_SDK_ROOT"),
         str(Path.home() / "Android/Sdk"),
-        "/usr/local/android-sdk", # Linux/macOS
-        "/opt/android-sdk",      # Linux
-        "/Applications/Android Studio.app/Contents/Resources/sdk", # macOS
-        "C:\\Program Files\\Android\\Android Studio\\Sdk" # Windows
+        "/usr/local/android-sdk",
+        "/opt/android-sdk",
+        "/Applications/Android Studio.app/Contents/Resources/sdk",
+        r"C:\Program Files\Android\Android Studio\Sdk",
     ],
     "REQUIRED_PYTHON_PACKAGES": [
-        "chaquopy",
         "numpy",
-        "onnxruntime"
+        "onnxruntime",
     ],
     "MAX_APK_SIZE_MB": 150,
     "GRADLE_VERSION": "7.4",
-    "PYTHON_VERSION": "3.8"
+    "PYTHON_VERSION": "3.8",
+    "COMPILE_SDK": 34,
+    "MIN_SDK": 21,
+    "TARGET_SDK": 34,
+    "APPLICATION_ID": "com.example.py2apk",
 }
 
 
-
-def find_android_sdk() -> Path:
-    """
-    Locate Android SDK installation
-    
-    Returns:
-        Path: Path to Android SDK directory
-    Raises:
-        FileNotFoundError: If SDK not found
-    """
+def android_sdk_candidates() -> List[Path]:
+    """Return configured SDK path candidates (existing or not)."""
+    out: List[Path] = []
     for path in DEFAULT_CONFIG["ANDROID_SDK_PATHS"]:
-        if path and Path(path).exists():
-            return Path(path)
-    raise FileNotFoundError("Android SDK not found. Install Android Studio first.")
+        if path:
+            out.append(Path(path))
+    return out
+
+
+def find_android_sdk() -> Optional[Path]:
+    """Locate Android SDK if present; return None when missing."""
+    for path in android_sdk_candidates():
+        if path.exists():
+            return path
+    return None
+
+
+def require_android_sdk() -> Path:
+    """Locate Android SDK or raise FileNotFoundError."""
+    found = find_android_sdk()
+    if found is None:
+        raise FileNotFoundError(
+            "Android SDK not found. Install Android Studio / set ANDROID_HOME, "
+            "or use `py2apk dry-run` / `py2apk scaffold` (Claim-0; no APK build)."
+        )
+    return found

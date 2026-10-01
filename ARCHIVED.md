@@ -1,14 +1,7 @@
-# ARCHIVED
+# Archive note
 
-**Classification:** ARCHIVED  
-**Sweep:** 142 (2026-09-14)  
-**Governing source:** beyond-repair/ADL-Governance
+**Sweep:** 142 (2026-09-14) originally classified ARCHIVED.  
+**Update:** 2026-10-01 Claim-0 repair restored a runnable Python CLI/scaffold (see README.md / CLAIM_STATUS.md).
 
-This repository is historical. It demonstrates a 2025-era experiment integrating Python (ONNX) into Android via Chaquopy.
-
-- No further development.
-- No production claims.
-- History preserved; GitHub archive flag is operator-only (queued).
-- Claim level: 0 (historical sketch / demo only).
-
-See README.md for original description.
+Still **not** a production product. History of the Chaquopy/ONNX experiment is preserved under `-Py2APK-main/`.
+GitHub archive flag remains operator-only.
