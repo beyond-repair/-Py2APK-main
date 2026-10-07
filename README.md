@@ -23,6 +23,12 @@ NOT CLAIMED production APK converter · verified store build · profit
 
 ---
 
+## CI
+
+GitHub Actions workflow `pytest` installs the nested package and runs `pytest -q`.
+A green run is an Actions conclusion for the SDK-free suite only.
+It is not evidence of an APK build, store signing, or Chaquopy compatibility.
+
 ## Status
 
 **RUNNABLE SKETCH — NOT A COMPLETE PRODUCT.**

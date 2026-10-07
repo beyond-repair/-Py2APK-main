@@ -20,3 +20,7 @@
 ## Repair note
 
 Product mutation allowed for Claim-0 runnability (installable package, SDK-free CLI, honest tests/docs). Nested `-Py2APK-main/` package root preserved.
+
+## CI bound
+
+Workflow `.github/workflows/pytest.yml` covers the SDK-free pytest suite only. Green CI is not an APK or security claim.
